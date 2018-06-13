@@ -1450,9 +1450,25 @@ void *run_prefilter(void *v) {
 	run_prefilter_args *rpa = (run_prefilter_args *) v;
 	json_writer state(rpa->prefilter_fp);
 
+	//	write out the start of a new tile to the persistent
+	//	prefilter stream
+	char tileBuffer[6];
+	sprintf(tileBuffer, "TILE\n");
+	fputs(tileBuffer, rpa->prefilter_fp);
+
+	char coordBuffer[50];
+	sprintf(coordBuffer, "%d/%u/%u\n", rpa->z, rpa->tx, rpa->ty);
+	fputs(coordBuffer, rpa->prefilter_fp);
+	
+	fflush(rpa->prefilter_fp);
+
+	fprintf(stderr, "[0] %s", coordBuffer);
+	fprintf(stderr, "[0] IN PREFILTER THREAD\n");
 	while (1) {
 		serial_feature sf = next_feature(rpa->geoms, rpa->geompos_in, rpa->metabase, rpa->meta_off, rpa->z, rpa->tx, rpa->ty, rpa->initial_x, rpa->initial_y, rpa->original_features, rpa->unclipped_features, rpa->nextzoom, rpa->maxzoom, rpa->minzoom, rpa->max_zoom_increment, rpa->pass, rpa->passes, rpa->along, rpa->alongminus, rpa->buffer, rpa->within, rpa->first_time, rpa->geomfile, rpa->geompos, rpa->oprogress, rpa->todo, rpa->fname, rpa->child_shards, rpa->filter, rpa->stringpool, rpa->pool_off, rpa->layer_unmaps);
+		fprintf(stderr, "[0] RECEIVED FEATURE\n");
 		if (sf.t < 0) {
+			fprintf(stderr, "[0] BREAKING\n");
 			break;
 		}
 
@@ -1488,18 +1504,26 @@ void *run_prefilter(void *v) {
 		layer_to_geojson(tmp_layer, 0, 0, 0, false, true, false, true, sf.index, sf.seq, sf.extent, true, state);
 	}
 
-	if (fclose(rpa->prefilter_fp) != 0) {
-		if (errno == EPIPE) {
-			static bool warned = false;
-			if (!warned) {
-				fprintf(stderr, "Warning: broken pipe in prefilter\n");
-				warned = true;
-			}
-		} else {
-			perror("fclose output to prefilter");
-			exit(EXIT_FAILURE);
-		}
-	}
+	char endBuffer[5];
+	sprintf(endBuffer, "END\n");
+	fputs(endBuffer, rpa->prefilter_fp);
+
+	fflush(rpa->prefilter_fp);
+
+	fprintf(stderr, "[0] DONE IN THREAD\n");
+
+	// if (fclose(rpa->prefilter_fp) != 0) {
+	// 	if (errno == EPIPE) {
+	// 		static bool warned = false;
+	// 		if (!warned) {
+	// 			fprintf(stderr, "Warning: broken pipe in prefilter\n");
+	// 			warned = true;
+	// 		}
+	// 	} else {
+	// 		perror("fclose output to prefilter");
+	// 		exit(EXIT_FAILURE);
+	// 	}
+	// }
 	return NULL;
 }
 
@@ -1665,7 +1689,7 @@ bool find_partial(std::vector<partial> &partials, serial_feature &sf, ssize_t &o
 	return false;
 }
 
-long long write_tile(FILE *geoms, std::atomic<long long> *geompos_in, char *metabase, char *stringpool, int z, unsigned tx, unsigned ty, int detail, int min_detail, sqlite3 *outdb, const char *outdir, int buffer, const char *fname, FILE **geomfile, int minzoom, int maxzoom, double todo, std::atomic<long long> *along, long long alongminus, double gamma, int child_shards, long long *meta_off, long long *pool_off, unsigned *initial_x, unsigned *initial_y, std::atomic<int> *running, double simplification, std::vector<std::map<std::string, layermap_entry>> *layermaps, std::vector<std::vector<std::string>> *layer_unmaps, size_t tiling_seg, size_t pass, size_t passes, unsigned long long mingap, long long minextent, double fraction, const char *prefilter, const char *postfilter, struct json_object *filter, write_tile_args *arg) {
+long long write_tile(FILE *geoms, std::atomic<long long> *geompos_in, char *metabase, char *stringpool, int z, unsigned tx, unsigned ty, int detail, int min_detail, sqlite3 *outdb, const char *outdir, int buffer, const char *fname, FILE **geomfile, int minzoom, int maxzoom, double todo, std::atomic<long long> *along, long long alongminus, double gamma, int child_shards, long long *meta_off, long long *pool_off, unsigned *initial_x, unsigned *initial_y, std::atomic<int> *running, double simplification, std::vector<std::map<std::string, layermap_entry>> *layermaps, std::vector<std::vector<std::string>> *layer_unmaps, size_t tiling_seg, size_t pass, size_t passes, unsigned long long mingap, long long minextent, double fraction, const char *prefilter, const char *postfilter, struct json_object *filter, write_tile_args *arg, FILE *prefilter_fp, json_pull *prefilter_jp) {
 	int line_detail;
 	double merge_fraction = 1;
 	double mingap_fraction = 1;
@@ -1735,22 +1759,23 @@ long long write_tile(FILE *geoms, std::atomic<long long> *geompos_in, char *meta
 			*geompos_in = og;
 		}
 
-		int prefilter_write = -1, prefilter_read = -1;
-		pid_t prefilter_pid = 0;
-		FILE *prefilter_fp = NULL;
+		// int prefilter_write = -1, prefilter_read = -1;
+		// pid_t prefilter_pid = 0;
+		// FILE *prefilter_fp = NULL;
 		pthread_t prefilter_writer;
 		run_prefilter_args rpa;  // here so it stays in scope until joined
-		FILE *prefilter_read_fp = NULL;
-		json_pull *prefilter_jp = NULL;
+		// FILE *prefilter_read_fp = NULL;
+		// json_pull *prefilter_jp = NULL;
 
 		if (prefilter != NULL) {
-			setup_filter(prefilter, &prefilter_write, &prefilter_read, &prefilter_pid, z, tx, ty);
-			prefilter_fp = fdopen(prefilter_write, "w");
-			if (prefilter_fp == NULL) {
-				perror("freopen prefilter");
-				exit(EXIT_FAILURE);
-			}
+			// setup_filter(prefilter, &prefilter_write, &prefilter_read, &prefilter_pid, z, tx, ty);
+			// prefilter_fp = fdopen(prefilter_write, "w");
+			// if (prefilter_fp == NULL) {
+			// 	perror("freopen prefilter");
+			// 	exit(EXIT_FAILURE);
+			// }
 
+			fprintf(stderr, "[1] HAS PREFILTER\n");
 			rpa.geoms = geoms;
 			rpa.geompos_in = geompos_in;
 			rpa.metabase = metabase;
@@ -1785,17 +1810,18 @@ long long write_tile(FILE *geoms, std::atomic<long long> *geompos_in, char *meta
 			rpa.pool_off = pool_off;
 			rpa.filter = filter;
 
+			fprintf(stderr, "[1] CREATING THREAD\n");
 			if (pthread_create(&prefilter_writer, NULL, run_prefilter, &rpa) != 0) {
 				perror("pthread_create (prefilter writer)");
 				exit(EXIT_FAILURE);
 			}
 
-			prefilter_read_fp = fdopen(prefilter_read, "r");
-			if (prefilter_read_fp == NULL) {
-				perror("fdopen prefilter output");
-				exit(EXIT_FAILURE);
-			}
-			prefilter_jp = json_begin_file(prefilter_read_fp);
+			// prefilter_read_fp = fdopen(prefilter_read, "r");
+			// if (prefilter_read_fp == NULL) {
+			// 	perror("fdopen prefilter output");
+			// 	exit(EXIT_FAILURE);
+			// }
+			// prefilter_jp = json_begin_file(prefilter_read_fp);
 		}
 
 		while (1) {
@@ -1805,6 +1831,7 @@ long long write_tile(FILE *geoms, std::atomic<long long> *geompos_in, char *meta
 			if (prefilter == NULL) {
 				sf = next_feature(geoms, geompos_in, metabase, meta_off, z, tx, ty, initial_x, initial_y, &original_features, &unclipped_features, nextzoom, maxzoom, minzoom, max_zoom_increment, pass, passes, along, alongminus, buffer, within, &first_time, geomfile, geompos, &oprogress, todo, fname, child_shards, filter, stringpool, pool_off, layer_unmaps);
 			} else {
+				fprintf(stderr, "[1] READING FEATURE\n");
 				sf = parse_feature(prefilter_jp, z, tx, ty, layermaps, tiling_seg, layer_unmaps, postfilter != NULL);
 			}
 
@@ -1978,21 +2005,6 @@ long long write_tile(FILE *geoms, std::atomic<long long> *geompos_in, char *meta
 		}
 
 		if (prefilter != NULL) {
-			json_end(prefilter_jp);
-			if (fclose(prefilter_read_fp) != 0) {
-				perror("close output from prefilter");
-				exit(EXIT_FAILURE);
-			}
-			while (1) {
-				int stat_loc;
-				if (waitpid(prefilter_pid, &stat_loc, 0) < 0) {
-					perror("waitpid for prefilter\n");
-					exit(EXIT_FAILURE);
-				}
-				if (WIFEXITED(stat_loc) || WIFSIGNALED(stat_loc)) {
-					break;
-				}
-			}
 			void *ret;
 			if (pthread_join(prefilter_writer, &ret) != 0) {
 				perror("pthread_join prefilter writer");
@@ -2460,6 +2472,35 @@ void *run_thread(void *vargs) {
 	write_tile_args *arg = (write_tile_args *) vargs;
 	struct task *task;
 
+	int persistent_prefilter_write = -1, persistent_prefilter_read = -1;
+	pid_t persistent_prefilter_pid = 0;
+	FILE *persistent_prefilter_fp = NULL;
+	// pthread_t prefilter_writer;
+	// run_persistent_prefilter_args rppa;  // here so it stays in scope until joined
+	FILE *persistent_prefilter_read_fp = NULL;
+	json_pull *prefilter_jp = NULL;
+
+	if (arg->prefilter != NULL) {
+		setup_persistent_filter(arg->prefilter, &persistent_prefilter_write, &persistent_prefilter_read, &persistent_prefilter_pid);
+		persistent_prefilter_fp = fdopen(persistent_prefilter_write, "w");
+		if (persistent_prefilter_fp == NULL) {
+			perror("freopen prefilter");
+			exit(EXIT_FAILURE);
+		}
+
+		// if (pthread_create(&prefilter_writer, NULL, run_prefilter, &rpa) != 0) {
+		// 	perror("pthread_create (prefilter writer)");
+		// 	exit(EXIT_FAILURE);
+		// }
+
+		persistent_prefilter_read_fp = fdopen(persistent_prefilter_read, "r");
+		if (persistent_prefilter_read_fp == NULL) {
+			perror("fdopen prefilter output");
+			exit(EXIT_FAILURE);
+		}
+		prefilter_jp = json_begin_file(persistent_prefilter_read_fp);
+	}
+
 	for (task = arg->tasks; task != NULL; task = task->next) {
 		int j = task->fileno;
 
@@ -2495,9 +2536,9 @@ void *run_thread(void *vargs) {
 			arg->wrote_zoom = z;
 
 			// fprintf(stderr, "%d/%u/%u\n", z, x, y);
-
-			long long len = write_tile(geom, &geompos, arg->metabase, arg->stringpool, z, x, y, z == arg->maxzoom ? arg->full_detail : arg->low_detail, arg->min_detail, arg->outdb, arg->outdir, arg->buffer, arg->fname, arg->geomfile, arg->minzoom, arg->maxzoom, arg->todo, arg->along, geompos, arg->gamma, arg->child_shards, arg->meta_off, arg->pool_off, arg->initial_x, arg->initial_y, arg->running, arg->simplification, arg->layermaps, arg->layer_unmaps, arg->tiling_seg, arg->pass, arg->passes, arg->mingap, arg->minextent, arg->fraction, arg->prefilter, arg->postfilter, arg->filter, arg);
-
+			fprintf(stderr, "[1] Writing Tile\n");
+			long long len = write_tile(geom, &geompos, arg->metabase, arg->stringpool, z, x, y, z == arg->maxzoom ? arg->full_detail : arg->low_detail, arg->min_detail, arg->outdb, arg->outdir, arg->buffer, arg->fname, arg->geomfile, arg->minzoom, arg->maxzoom, arg->todo, arg->along, geompos, arg->gamma, arg->child_shards, arg->meta_off, arg->pool_off, arg->initial_x, arg->initial_y, arg->running, arg->simplification, arg->layermaps, arg->layer_unmaps, arg->tiling_seg, arg->pass, arg->passes, arg->mingap, arg->minextent, arg->fraction, arg->prefilter, arg->postfilter, arg->filter, arg, persistent_prefilter_fp, prefilter_jp);
+			fprintf(stderr, "[1] Finished Tile\n");
 			if (len < 0) {
 				int *err = &arg->err;
 				*err = z - 1;
@@ -2555,6 +2596,45 @@ void *run_thread(void *vargs) {
 			perror("close geom");
 			exit(EXIT_FAILURE);
 		}
+	}
+
+	if (arg->prefilter != NULL) {
+		json_end(prefilter_jp);
+		if (fclose(persistent_prefilter_read_fp) != 0) {
+			perror("close output from prefilter");
+			exit(EXIT_FAILURE);
+		}
+
+		fputs("DONE", persistent_prefilter_fp);
+		if (fclose(persistent_prefilter_fp) != 0) {
+			if (errno == EPIPE) {
+				static bool warned = false;
+				if (!warned) {
+					fprintf(stderr, "Warning: broken pipe in prefilter\n");
+					warned = true;
+				}
+			} else {
+				perror("fclose output to prefilter");
+				exit(EXIT_FAILURE);
+			}
+		}
+
+		while (1) {
+			int stat_loc;
+			if (waitpid(persistent_prefilter_pid, &stat_loc, 0) < 0) {
+				perror("waitpid for prefilter\n");
+				exit(EXIT_FAILURE);
+			}
+			if (WIFEXITED(stat_loc) || WIFSIGNALED(stat_loc)) {
+				break;
+			}
+		}
+		
+		// void *ret;
+		// if (pthread_join(prefilter_writer, &ret) != 0) {
+		// 	perror("pthread_join prefilter writer");
+		// 	exit(EXIT_FAILURE);
+		// }
 	}
 
 	arg->running--;

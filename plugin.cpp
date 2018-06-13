@@ -297,9 +297,10 @@ std::vector<mvt_layer> parse_layers(int fd, int z, unsigned x, unsigned y, std::
 // Reads from the prefilter
 serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::vector<std::map<std::string, layermap_entry>> *layermaps, size_t tiling_seg, std::vector<std::vector<std::string>> *layer_unmaps, bool postfilter) {
 	serial_feature sf;
-
 	while (1) {
+		fprintf(stderr, "[1] TRYING TO READ FEATURE\n");
 		json_object *j = json_read(jp);
+		fprintf(stderr, "[1] SUCCESSFULLY READ FEATURE\n");
 		if (j == NULL) {
 			if (jp->error != NULL) {
 				fprintf(stderr, "Filter output:%d: %s\n", jp->line, jp->error);
@@ -309,6 +310,7 @@ serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::
 				exit(EXIT_FAILURE);
 			}
 
+			fprintf(stderr, "[1] PARSE FINISHED - EMPTY\n");
 			json_free(jp->root);
 			sf.t = -1;
 			return sf;
@@ -388,6 +390,7 @@ serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::
 			dv[i].y = std::round(dv[i].y / scale) * scale - sy;
 		}
 
+		fprintf(stderr, "DRAWVEC LENGTH: %u\n", dv.size());
 		if (dv.size() > 0) {
 			sf.t = mb_geometry[t];
 			sf.segment = tiling_seg;
@@ -515,6 +518,8 @@ serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::
 			}
 
 			json_free(j);
+
+			fprintf(stderr, "[1] PARSE FINISHED - REAL FEATURE\n");
 			return sf;
 		}
 
