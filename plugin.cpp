@@ -295,12 +295,29 @@ std::vector<mvt_layer> parse_layers(int fd, int z, unsigned x, unsigned y, std::
 }
 
 // Reads from the prefilter
-serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::vector<std::map<std::string, layermap_entry>> *layermaps, size_t tiling_seg, std::vector<std::vector<std::string>> *layer_unmaps, bool postfilter) {
+serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::vector<std::map<std::string, layermap_entry>> *layermaps, size_t tiling_seg, std::vector<std::vector<std::string>> *layer_unmaps, bool postfilter, FILE* json_stream) {
 	serial_feature sf;
 	while (1) {
-		fprintf(stderr, "[1] TRYING TO READ FEATURE\n");
+		//	peek at what the next character is in our input stream
+		int c = fgetc(json_stream);
+
+		//	if it doesn't start a valid JSON feature, then we should
+		//	abort reading from this stream (for now)
+		char startChar = '{';
+		if (c != (int) startChar) {
+			fprintf(stderr, "[1] PARSE FINISHED - TERMINATED\n");
+			json_free(jp->root);
+			sf.t = -1;
+			return sf;
+		} else {
+			//	otherwise, if it does start a valid JSON object, continue on
+			//	and put the character back.
+			ungetc(c, json_stream)
+		}
+
+		// fprintf(stderr, "[1] TRYING TO READ FEATURE\n");
 		json_object *j = json_read(jp);
-		fprintf(stderr, "[1] SUCCESSFULLY READ FEATURE\n");
+		// fprintf(stderr, "[1] SUCCESSFULLY READ FEATURE\n");
 		if (j == NULL) {
 			if (jp->error != NULL) {
 				fprintf(stderr, "Filter output:%d: %s\n", jp->line, jp->error);
