@@ -312,7 +312,7 @@ serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::
 		} else {
 			//	otherwise, if it does start a valid JSON object, continue on
 			//	and put the character back.
-			ungetc(c, json_stream)
+			ungetc(c, json_stream);
 		}
 
 		// fprintf(stderr, "[1] TRYING TO READ FEATURE\n");
