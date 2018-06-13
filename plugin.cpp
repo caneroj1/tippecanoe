@@ -524,13 +524,12 @@ serial_feature parse_feature(json_pull *jp, int z, unsigned x, unsigned y, std::
 
 static pthread_mutex_t pipe_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void setup_filter(const char *filter, int *write_to, int *read_from, pid_t *pid, unsigned z, unsigned x, unsigned y) {
+void setup_filter_common(int *write_to, int *read_from, pid_t *pid) {
 	// This will create two pipes, a new thread, and a new process.
 	//
 	// The new process will read from one pipe and write to the other, and execute the filter.
 	// The new thread will write the GeoJSON to the pipe that leads to the filter.
 	// The original thread will read the GeoJSON from the filter and convert it back into vector tiles.
-
 	if (pthread_mutex_lock(&pipe_lock) != 0) {
 		perror("pthread_mutex_lock (pipe)");
 		exit(EXIT_FAILURE);
@@ -545,10 +544,6 @@ void setup_filter(const char *filter, int *write_to, int *read_from, pid_t *pid,
 		perror("pipe (filtered features)");
 		exit(EXIT_FAILURE);
 	}
-
-	std::string z_str = std::to_string(z);
-	std::string x_str = std::to_string(x);
-	std::string y_str = std::to_string(y);
 
 	*pid = fork();
 	if (*pid < 0) {
@@ -581,13 +576,6 @@ void setup_filter(const char *filter, int *write_to, int *read_from, pid_t *pid,
 			perror("close dup output of filter");
 			exit(EXIT_FAILURE);
 		}
-
-		// XXX close other fds?
-
-		if (execlp("sh", "sh", "-c", filter, "sh", z_str.c_str(), x_str.c_str(), y_str.c_str(), NULL) != 0) {
-			perror("exec");
-			exit(EXIT_FAILURE);
-		}
 	} else {
 		// parent
 
@@ -615,6 +603,31 @@ void setup_filter(const char *filter, int *write_to, int *read_from, pid_t *pid,
 
 		*write_to = pipe_orig[1];
 		*read_from = pipe_filtered[0];
+	}
+}
+
+void setup_persistent_filter(const char *filter, int *write_to, int *read_from, pid_t *pid) {
+	setup_filter_common(write_to, read_from, pid);
+
+	if (*pid == 0) {
+		if (execlp("sh", "sh", "-c", filter, "sh", NULL) != 0) {
+			perror("exec");
+			exit(EXIT_FAILURE);
+		}
+	}
+}
+
+void setup_filter(const char *filter, int *write_to, int *read_from, pid_t *pid, unsigned z, unsigned x, unsigned y) {
+	setup_filter_common(write_to, read_from, pid);
+	
+	if (*pid == 0) {
+		std::string z_str = std::to_string(z);
+		std::string x_str = std::to_string(x);
+		std::string y_str = std::to_string(y);
+		if (execlp("sh", "sh", "-c", filter, "sh", z_str.c_str(), x_str.c_str(), y_str.c_str(), NULL) != 0) {
+			perror("exec");
+			exit(EXIT_FAILURE);
+		}
 	}
 }
 
